@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-KomoChat - Terminal Chat Application by Komo Moko
+KomoChat - Cross-Network Terminal Chat Application by Komo Moko
 """
 
 import socket
@@ -9,6 +9,7 @@ import sys
 import os
 import json
 import time
+import requests
 from datetime import datetime
 
 # Color codes for better readability
@@ -49,6 +50,78 @@ def get_local_ip():
     except:
         return "127.0.0.1"
 
+def get_public_ip():
+    """Get public IP address"""
+    try:
+        return requests.get('https://api.ipify.org', timeout=5).text
+    except:
+        try:
+            return requests.get('https://api64.ipify.org', timeout=5).text
+        except:
+            return None
+
+def is_valid_ip(ip):
+    """Check if IP address is valid"""
+    try:
+        socket.inet_aton(ip)
+        return True
+    except socket.error:
+        return False
+
+def test_port(ip, port, timeout=3):
+    """Test if a port is open on a remote host"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((ip, port))
+        sock.close()
+        return result == 0
+    except:
+        return False
+
+def scan_common_ports(ip):
+    """Scan common chat ports"""
+    common_ports = [9999, 8888, 7777, 12345, 5555, 2222, 9998, 9997]
+    open_ports = []
+    
+    print(f"\n{Colors.YELLOW}Scanning common ports on {ip}...{Colors.END}")
+    for port in common_ports:
+        print(f"  Port {port}...", end="\r")
+        if test_port(ip, port, 1):
+            open_ports.append(port)
+            print(f"  Port {port}: {Colors.GREEN}OPEN{Colors.END}")
+        else:
+            print(f"  Port {port}: {Colors.RED}CLOSED{Colors.END}")
+    return open_ports
+
+def display_network_info():
+    """Display network information"""
+    clear_screen()
+    print(f"{Colors.CYAN}{'='*60}")
+    print(f"           {Colors.BOLD}Network Information")
+    print(f"{Colors.CYAN}{'='*60}{Colors.END}\n")
+    
+    local_ip = get_local_ip()
+    public_ip = get_public_ip()
+    
+    print(f"{Colors.BOLD}Local IP: {Colors.KOMO_GREEN}{local_ip}{Colors.END}")
+    if public_ip:
+        print(f"{Colors.BOLD}Public IP: {Colors.CYAN}{public_ip}{Colors.END}")
+    else:
+        print(f"{Colors.BOLD}Public IP: {Colors.RED}Could not determine{Colors.END}")
+    
+    # Show network type
+    print(f"\n{Colors.BOLD}Network Status:{Colors.END}")
+    if local_ip.startswith("192.168.") or local_ip.startswith("10.") or local_ip.startswith("172.16."):
+        print(f"  {Colors.YELLOW}⚠️  You are behind a NAT/Router{Colors.END}")
+        print(f"  {Colors.YELLOW}  For incoming connections: Forward port 9999 on your router{Colors.END}")
+    elif local_ip == "127.0.0.1":
+        print(f"  {Colors.RED}❌ No network connection detected{Colors.END}")
+    else:
+        print(f"  {Colors.GREEN}✅ Direct internet connection{Colors.END}")
+    
+    input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.END}")
+
 def display_connection_menu():
     """Display only connection menu - no banners"""
     clear_screen()
@@ -56,25 +129,33 @@ def display_connection_menu():
     print(f"           {Colors.BOLD}KomoChat Connection Setup")
     print(f"{Colors.CYAN}{'='*60}{Colors.END}\n")
     
-    print(f"{Colors.BOLD}Your IP Address: {Colors.KOMO_GREEN}{get_local_ip()}{Colors.END}")
+    local_ip = get_local_ip()
+    public_ip = get_public_ip()
+    
+    print(f"{Colors.BOLD}Your Local IP: {Colors.KOMO_GREEN}{local_ip}{Colors.END}")
+    if public_ip:
+        print(f"{Colors.BOLD}Your Public IP: {Colors.CYAN}{public_ip}{Colors.END}")
+    
     print(f"\n{Colors.BOLD}Select Mode:{Colors.END}")
-    print(f"{Colors.GREEN}[1]{Colors.END} Connect to a friend (Sender)")
-    print(f"{Colors.BLUE}[2]{Colors.END} Wait for connection (Receiver)")
-    print(f"{Colors.RED}[3]{Colors.END} Exit KomoChat")
+    print(f"{Colors.GREEN}[1]{Colors.END} Connect to a friend (Client)")
+    print(f"{Colors.BLUE}[2]{Colors.END} Wait for connection (Server)")
+    print(f"{Colors.PURPLE}[3]{Colors.END} Network Diagnostics")
+    print(f"{Colors.YELLOW}[4]{Colors.END} Scan for open ports")
+    print(f"{Colors.RED}[5]{Colors.END} Exit KomoChat")
     
     while True:
         try:
-            choice = input(f"\n{Colors.YELLOW}Enter choice (1-3): {Colors.END}").strip()
-            if choice in ['1', '2', '3']:
+            choice = input(f"\n{Colors.YELLOW}Enter choice (1-5): {Colors.END}").strip()
+            if choice in ['1', '2', '3', '4', '5']:
                 return int(choice)
             else:
-                print(f"{Colors.RED}Please enter 1, 2, or 3{Colors.END}")
+                print(f"{Colors.RED}Please enter 1-5{Colors.END}")
         except KeyboardInterrupt:
             print(f"\n{Colors.RED}Exiting...{Colors.END}")
             sys.exit(0)
 
 def start_sender():
-    """Start as sender/client - minimal setup"""
+    """Start as sender/client with cross-network support"""
     clear_screen()
     print(f"{Colors.CYAN}{'='*60}")
     print(f"           {Colors.BOLD}Connect to Friend")
@@ -82,10 +163,23 @@ def start_sender():
     
     # Get receiver's IP
     while True:
-        receiver_ip = input(f"{Colors.YELLOW}Enter friend's IP address: {Colors.END}").strip()
+        receiver_ip = input(f"{Colors.YELLOW}Enter friend's IP address (or domain): {Colors.END}").strip()
         if receiver_ip:
-            break
-        print(f"{Colors.RED}IP address cannot be empty!{Colors.END}")
+            if is_valid_ip(receiver_ip) or '.' in receiver_ip:
+                break
+            else:
+                print(f"{Colors.RED}Please enter a valid IP address or domain{Colors.END}")
+    
+    # Try to resolve domain if not IP
+    try:
+        if not is_valid_ip(receiver_ip):
+            print(f"{Colors.YELLOW}Resolving {receiver_ip}...{Colors.END}")
+            receiver_ip = socket.gethostbyname(receiver_ip)
+            print(f"{Colors.GREEN}Resolved to: {receiver_ip}{Colors.END}")
+    except:
+        print(f"{Colors.RED}Cannot resolve {receiver_ip}{Colors.END}")
+        input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.END}")
+        return
     
     # Get port number
     while True:
@@ -102,21 +196,45 @@ def start_sender():
         except ValueError:
             print(f"{Colors.RED}Please enter a valid number{Colors.END}")
     
+    # Test connection first
+    print(f"\n{Colors.YELLOW}Testing connection to {receiver_ip}:{port}...{Colors.END}")
+    
+    if test_port(receiver_ip, port):
+        print(f"{Colors.GREEN}✅ Port {port} is open!{Colors.END}")
+    else:
+        print(f"{Colors.RED}❌ Port {port} is closed or unreachable{Colors.END}")
+        print(f"\n{Colors.YELLOW}Troubleshooting:{Colors.END}")
+        print("1. Make sure friend is running KomoChat in Receiver mode")
+        print("2. Friend needs to forward port {port} on their router")
+        print("3. Friend's firewall must allow incoming connections")
+        
+        retry = input(f"\n{Colors.YELLOW}Try anyway? (y/n): {Colors.END}").strip().lower()
+        if retry != 'y':
+            input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.END}")
+            return
+    
     # Try to connect
     print(f"\n{Colors.GREEN}Connecting to {receiver_ip}:{port}...{Colors.END}")
     
     try:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.settimeout(10)
         client_socket.connect((receiver_ip, port))
-        print(f"{Colors.GREEN}Connected successfully!{Colors.END}")
+        client_socket.settimeout(None)  # Reset timeout
+        
+        print(f"{Colors.GREEN}✅ Connected successfully!{Colors.END}")
         time.sleep(1)
         
         # Show only chat interface
         chat_session(client_socket, "You", "Friend", receiver_ip)
         
+    except socket.timeout:
+        print(f"\n{Colors.RED}❌ Connection timeout")
+        print("Make sure the remote server is running and port is forwarded{Colors.END}")
+        input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.END}")
     except ConnectionRefusedError:
-        print(f"\n{Colors.RED}❌ Connection refused.")
-        print(f"Make sure your friend is running KomoChat in Receiver mode{Colors.END}")
+        print(f"\n{Colors.RED}❌ Connection refused")
+        print("The server is not running on that port{Colors.END}")
         input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.END}")
     except Exception as e:
         print(f"\n{Colors.RED}Error: {e}{Colors.END}")
@@ -128,7 +246,7 @@ def start_sender():
             pass
 
 def start_receiver():
-    """Start as receiver/server - minimal setup"""
+    """Start as receiver/server with cross-network support"""
     clear_screen()
     print(f"{Colors.CYAN}{'='*60}")
     print(f"           {Colors.BOLD}Wait for Connection")
@@ -149,17 +267,31 @@ def start_receiver():
         except ValueError:
             print(f"{Colors.RED}Please enter a valid number{Colors.END}")
     
+    # Show network information
+    local_ip = get_local_ip()
+    public_ip = get_public_ip()
+    
+    print(f"\n{Colors.BOLD}Connection Information:{Colors.END}")
+    print(f"{Colors.GREEN}Local IP: {local_ip}{Colors.END}")
+    if public_ip:
+        print(f"{Colors.CYAN}Public IP: {public_ip}{Colors.END}")
+    
+    print(f"\n{Colors.YELLOW}⚠️  For cross-network chat:{Colors.END}")
+    print(f"{Colors.YELLOW}1. Forward port {port} on your router{Colors.END}")
+    print(f"{Colors.YELLOW}2. Allow port {port} in firewall{Colors.END}")
+    print(f"{Colors.YELLOW}3. Share your {Colors.CYAN}Public IP{Colors.YELLOW} with friend{Colors.END}")
+    
     print(f"\n{Colors.GREEN}Waiting for connection on port {port}...{Colors.END}")
-    print(f"{Colors.YELLOW}Share this with your friend:{Colors.END}")
-    print(f"{Colors.CYAN}IP: {get_local_ip()}")
-    print(f"Port: {port}{Colors.END}")
-    print(f"\n{Colors.GREEN}⏳ Waiting for friend to connect...{Colors.END}")
     
     try:
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind(('0.0.0.0', port))
         server_socket.listen(1)
+        server_socket.settimeout(3600)  # 1 hour timeout
+        
+        print(f"{Colors.GREEN}✅ Server is listening...{Colors.END}")
+        print(f"{Colors.YELLOW}(Press Ctrl+C to cancel){Colors.END}")
         
         client_socket, client_address = server_socket.accept()
         print(f"\n{Colors.GREEN}✅ Connected to {client_address[0]}{Colors.END}")
@@ -168,12 +300,17 @@ def start_receiver():
         # Show only chat interface
         chat_session(client_socket, "You", f"Friend ({client_address[0]})", "")
         
+    except socket.timeout:
+        print(f"\n{Colors.YELLOW}⏰ No connection received in 1 hour{Colors.END}")
+        input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.END}")
+    except KeyboardInterrupt:
+        print(f"\n{Colors.YELLOW}Server stopped by user{Colors.END}")
+        input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.END}")
     except Exception as e:
         print(f"\n{Colors.RED}Error: {e}{Colors.END}")
         input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.END}")
     finally:
         try:
-            client_socket.close()
             server_socket.close()
         except:
             pass
@@ -278,6 +415,14 @@ def receive_messages(sock, friend_name):
 
 def main():
     """Main function - Simple loop"""
+    # Check for required packages
+    try:
+        import requests
+    except ImportError:
+        print(f"{Colors.RED}Missing required package: requests{Colors.END}")
+        print(f"{Colors.YELLOW}Install it with: pip install requests{Colors.END}")
+        sys.exit(1)
+    
     while True:
         try:
             choice = display_connection_menu()
@@ -287,6 +432,15 @@ def main():
             elif choice == 2:
                 start_receiver()
             elif choice == 3:
+                display_network_info()
+            elif choice == 4:
+                # Simple port scanner
+                clear_screen()
+                ip = input(f"{Colors.YELLOW}Enter IP to scan: {Colors.END}").strip()
+                if ip:
+                    scan_common_ports(ip)
+                    input(f"\n{Colors.YELLOW}Press Enter to continue...{Colors.END}")
+            elif choice == 5:
                 print(f"\n{Colors.YELLOW}Goodbye from KomoChat!{Colors.END}")
                 break
                 
